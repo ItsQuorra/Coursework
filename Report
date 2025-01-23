@@ -1,0 +1,287 @@
+library(tidyverse)
+library(gt)
+library(showtext)
+showtext_auto()
+data<-read.csv("2024.csv")
+
+summary(data)
+
+str(data)
+
+###  1.Analysing the difference in scoring between home and away games ###  
+
+# Descriptive Statistics
+score_summary <- data %>%
+  summarise(
+    home_mean = mean(home_score_total, na.rm = TRUE),
+    away_mean = mean(away_score_total, na.rm = TRUE),
+    home_sd = sd(home_score_total, na.rm = TRUE),
+    away_sd = sd(away_score_total, na.rm = TRUE)
+  )
+score_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Euro 2024 home and away scoring stats"
+  ) %>%
+  cols_label(
+    home_mean = "Home Average Score",
+    away_mean = "Away Average Score", 
+    home_sd = "Home Standard Deviation",
+    away_sd = "Away Standard Deviation"
+  ) %>%
+  fmt_number(
+    columns = everything(),
+    decimals = 2
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(
+    table.border.top.style = "solid",
+    table.border.bottom.style = "solid",
+    column_labels.background.color = "#e6e6fa"
+  )
+
+# t-test
+t_test_result <- t.test(data$home_score_total, 
+                        data$away_score_total, paired = TRUE)
+
+t_test_result
+
+# Visualisation: Box-Line Charts
+ggplot(data.frame(
+  score = c(data$home_score_total, data$away_score_total),
+  type = rep(c("Home", "Away"), each = nrow(data))
+)) +
+  geom_boxplot(aes(x = type, y = score, fill = type)) +
+  labs(title = "Box Plot of Home and Away Scores",
+       x = "Match Type",
+       y = "Score") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+# Score Distribution Density Plot
+ggplot(data.frame(
+  score = c(data$home_score_total, data$away_score_total),
+  type = rep(c("Home", "Away"), each = nrow(data))
+)) +
+  geom_density(aes(x = score, fill = type), alpha = 0.5) +
+  labs(title = "Density Distribution of Home and Away Scores",
+       x = "Score",
+       y = "Density") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+# Crosstab
+score_table <- table(data$home_score_total, 
+                     data$away_score_total)
+
+# Convert to data frame
+score_df <- as.data.frame.table(score_table)
+colnames(score_df) <- c("Home Score", "Away Score", "frequency")
+
+# Plot a Heatmap
+ggplot(score_df, aes(x = `Away Score`, y = `Home Score`, fill = frequency)) +
+  geom_tile(color="black") +
+  scale_fill_gradient(low = "white", high = "red") +
+  geom_text(aes(label = frequency), color = "black") + 
+  labs(title = "Heatmap of Home and Away Score Distribution",
+       fill = "Number count") +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10),
+        plot.title = element_text(hjust = 0.5))
+
+
+### 2.Analyze the Statistical Significance of Higher Home Win Rates Compared to Away Win Rates
+
+# Calculate Win, Loss, and Draw Outcomes
+data <- data %>%
+  mutate(
+    match_result = case_when(
+      home_score > away_score ~ "Home Win",
+      home_score < away_score ~ "Away Win",
+      TRUE ~ "Draw"
+    )
+  )
+
+# Calculate the Frequency and Proportion of Each Outcome
+result_summary <- data %>%
+  count(match_result) %>%
+  mutate(percentage = n/sum(n) * 100)
+
+result_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Statistics of UEFA Euro 2024 Match Results"
+  ) %>%
+  cols_label(
+    match_result = "Match Outcomes",
+    n = "Number of Matches",
+    percentage = "Proportion(%)"
+  ) %>%
+  fmt_number(
+    columns = percentage,
+    decimals = 2
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(
+    table.border.top.style = "solid",
+    table.border.bottom.style = "solid",
+    column_labels.background.color = "#e6e6fa"
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#90EE90")
+    ),
+    locations = cells_body(
+      rows = match_result == "Home Win"
+    )
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#FFB6C1")
+    ),
+    locations = cells_body(
+      rows = match_result == "Away Win"
+    )
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#F0E68C")
+    ),
+    locations = cells_body(
+      rows = match_result == "Draw"
+    )
+  )
+
+# Chi-Square Test
+observed <- c(
+  sum(data$home_score > data$away_score),  # Home_win
+  sum(data$home_score < data$away_score),  # Away_win
+  sum(data$home_score == data$away_score)  # Draw
+)
+expected <- rep(nrow(data)/3, 3)  # Expected Frequency
+chi_result <- chisq.test(observed, p = c(1/3, 1/3, 1/3))
+
+chi_result
+
+#Bar Chart of Win-Loss-Draw Proportions
+ggplot(result_summary, aes(x = match_result, y = percentage, 
+                           fill = match_result)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), 
+            position = position_stack(vjust = 0.5)) +
+  labs(title = "Home and Away Match Outcome Proportions",
+       x = "Match Outcomes",
+       y = "Proportion(%)") +
+  scale_fill_manual(values = c("Home Win" = "#2ecc71", 
+                               "Away Win" = "#e74c3c",
+                               "Draw" = "#f1c40f")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Calculate the confidence interval for the win rate
+prop_test <- prop.test(sum(data$home_score_total > data$away_score_total), 
+                       n = nrow(data))
+
+prop_test
+
+
+# 3.Does the scoring difference between home and away matches vary across different stages of the competition (e.g., group stage, knockout stage)?
+
+# Analysed by cluster of rounds
+data <- data %>%
+  mutate(
+    round_type = case_when(
+      round_mode == "GROUP" ~ "Group Stage",
+      round_mode == "KNOCK_OUT" ~ "Knockout Stage",
+      round_mode == "FINAL" ~ "Final"
+    ),
+    score_diff = home_score - away_score
+  )
+
+# Descriptive Statistics
+round_summary <- data%>%filter(round_mode!="FINAL") %>%
+  group_by(`Round Type`) %>%
+  summarise(
+    `Match Count` = n(),
+    `Home Average Score` = mean(home_score),
+    `Away Average Score` = mean(away_score),
+    `Score Difference` = mean(score_diff),
+    `Standard Deviation` = sd(score_diff)
+  )
+
+round_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Scoring Statistics by Stage: Home vs. Away Matches",
+  ) %>%
+  fmt_number(
+    columns = c(`Home Average Score`, `Away Average Score`, `Score Difference`, `Standard Deviation`),
+    decimals = 2
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#f0f8ff")
+    ),
+    locations = cells_body(
+      rows = round_type == "Group Stage"
+    )
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#fff0f5")
+    ),
+    locations = cells_body(
+      rows = round_type == "Knockout Stage" 
+    )
+  ) %>%
+  cols_align(
+    align = "center",
+    columns = everything()
+  ) %>%
+  tab_options(
+    table.border.top.style = "solid",
+    table.border.bottom.style = "solid",
+    column_labels.border.bottom.style = "solid",
+    column_labels.background.color = "#e6e6fa"
+  )
+
+# ANOVA Analysis
+data_long <- data%>%filter(round_mode!="FINAL") %>%
+  pivot_longer(
+    cols = c(home_score, away_score),
+    names_to = "location",
+    values_to = "score"
+  ) %>%
+  mutate(location = ifelse(location == "home_score", "Home", "Away"))
+
+anova_result <- aov(score ~ round_type * location, data = data_long)
+summary(anova_result)
+TukeyHSD(anova_result)
+
+# Box Plot
+ggplot(data %>% filter(round_mode != "FINAL"), aes(x = round_type, y = score_diff, fill = round_type)) +
+  geom_boxplot() +
+  labs(title = "Scoring Differences Between Home and Away Matches Across Rounds",
+       x = "Match Rounds",
+       y = "Score Difference (Home - Away)") +
+  theme_minimal()
+
+# Grouped Bar Plot
+ggplot(data_long %>% filter(round_mode != "FINAL"), aes(x = round_type, y = score, fill = location)) +
+  geom_boxplot() +
+  facet_wrap(~location) +
+  labs(title = "Score Distribution Between Home and Away Matches Across Rounds",
+       x = "Match Rounds",
+       y = "Score") +
+  scale_fill_manual(values = c("Home" = "#2ecc71", "Away" = "#e74c3c")) +
+  theme_minimal()
+
+# Kruskal-Wallis Test
+kruskal.test(score_diff ~ round_type, data = data)
+
